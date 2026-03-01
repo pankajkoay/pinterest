@@ -25,8 +25,13 @@ const BOARDS = {
 
 let store = {};
 Object.keys(BOARDS).forEach(k => store[k] = []);
+
+// Load existing archive if it exists
 if (fs.existsSync(ARCHIVE_FILE)) {
-    try { store = JSON.parse(fs.readFileSync(ARCHIVE_FILE)); } catch (e) {}
+    try { 
+        const data = JSON.parse(fs.readFileSync(ARCHIVE_FILE)); 
+        Object.assign(store, data);
+    } catch (e) { console.error("Archive Load Error"); }
 }
 
 async function verifyOriginal(pinUrl) {
@@ -41,41 +46,69 @@ async function verifyOriginal(pinUrl) {
     return null; 
 }
 
-async function syncBoard(type) {
-    const boardId = BOARDS[type];
-    if (!boardId) return;
-    try {
-        const res = await fetch(`https://www.pinterest.com/${boardId}.rss`);
-        const xml = await res.text();
-        const result = await parseStringPromise(xml);
-        const items = result.rss.channel[0].item;
-        let newCount = 0;
-        for (const item of items) {
-            const imgMatch = item.description[0].match(/src="(.*?)"/);
-            if (imgMatch && imgMatch[1]) {
-                const url = imgMatch[1];
-                if (!store[type].includes(url)) { store[type].push(url); newCount++; }
+// 🕵️ THE PROACTIVE SCOUT: Walks through all boards
+async function syncAllBoards() {
+    console.log("🕵️ Background Scout: Starting global board patrol...");
+    let foundNew = false;
+    for (const type of Object.keys(BOARDS)) {
+        try {
+            const res = await fetch(`https://www.pinterest.com/${BOARDS[type]}.rss`);
+            const xml = await res.text();
+            const result = await parseStringPromise(xml);
+            const items = result.rss.channel[0].item;
+            
+            for (const item of items) {
+                const imgMatch = item.description[0].match(/src="(.*?)"/);
+                if (imgMatch && imgMatch[1]) {
+                    const url = imgMatch[1];
+                    if (!store[type].includes(url)) { 
+                        store[type].push(url); 
+                        foundNew = true; 
+                    }
+                }
             }
-        }
-        if (newCount > 0) fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(store));
-    } catch (e) { console.error(`Sync error: ${type}`); }
+        } catch (e) { console.error(`Patrol failed for ${type}`); }
+    }
+    if (foundNew) {
+        fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(store));
+        console.log("💎 Archive Updated with new treasures.");
+    }
 }
+
+// Start the background patrol: Every 15 minutes
+setInterval(syncAllBoards, 15 * 60 * 1000);
+syncAllBoards(); // Run once on startup
 
 app.get('/pinterest/scout/:type', async (req, res) => {
     const type = req.params.type.toLowerCase();
     const seen = req.query.seen ? req.query.seen.split(',') : [];
     if (!BOARDS[type]) return res.json({ success: false, error: "Board not found" });
 
-    await syncBoard(type);
+    // Grab candidates from our permanent archive
     const candidates = store[type];
     const output = [];
+    
+    // Search backward (newest first) but skip seen ones
     for (let i = candidates.length - 1; i >= 0; i--) {
         if (output.length >= 15) break;
         if (seen.includes(candidates[i])) continue;
+        
         const original = await verifyOriginal(candidates[i]);
         if (original) output.push(original);
     }
+
+    // If we have nothing fresh, try to sync right now as a last resort
+    if (output.length === 0) {
+        await syncAllBoards();
+    }
+
     res.json({ success: true, pins: output });
+});
+
+app.get('/stats', (req, res) => {
+    const stats = {};
+    Object.keys(store).forEach(k => stats[k] = store[k].length);
+    res.json({ success: true, total_pins: stats });
 });
 
 app.get('/', (req, res) => res.send(`⚓ Command Center Active. Managing ${Object.keys(BOARDS).length} boards.`));
