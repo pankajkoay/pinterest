@@ -1,4 +1,3 @@
-// FILE 2: index.js (The Brain)
 const express = require('express');
 const fetch = require('node-fetch');
 const { parseStringPromise } = require('xml2js');
@@ -9,10 +8,8 @@ const app = express();
 app.use(cors());
 const PORT = process.env.PORT || 3000;
 
-// 🏰 THE MASTER ARCHIVE
 const ARCHIVE_FILE = './master_archive.json';
 
-// --- YOUR SOVEREIGN BOARDS ---
 const BOARDS = {
     "day": "ccadlas/day",
     "night": "ccadlas/night",
