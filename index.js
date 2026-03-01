@@ -26,7 +26,6 @@ const BOARDS = {
 let store = {};
 Object.keys(BOARDS).forEach(k => store[k] = []);
 
-// Load existing archive if it exists
 if (fs.existsSync(ARCHIVE_FILE)) {
     try { 
         const data = JSON.parse(fs.readFileSync(ARCHIVE_FILE)); 
@@ -46,9 +45,8 @@ async function verifyOriginal(pinUrl) {
     return null; 
 }
 
-// 🕵️ THE PROACTIVE SCOUT: Walks through all boards
 async function syncAllBoards() {
-    console.log("🕵️ Background Scout: Starting global board patrol...");
+    console.log("🕵️ Background Scout patrolling...");
     let foundNew = false;
     for (const type of Object.keys(BOARDS)) {
         try {
@@ -67,28 +65,22 @@ async function syncAllBoards() {
                     }
                 }
             }
-        } catch (e) { console.error(`Patrol failed for ${type}`); }
+        } catch (e) {}
     }
-    if (foundNew) {
-        fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(store));
-        console.log("💎 Archive Updated with new treasures.");
-    }
+    if (foundNew) fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(store));
 }
 
-// Start the background patrol: Every 15 minutes
 setInterval(syncAllBoards, 15 * 60 * 1000);
-syncAllBoards(); // Run once on startup
+syncAllBoards();
 
 app.get('/pinterest/scout/:type', async (req, res) => {
     const type = req.params.type.toLowerCase();
     const seen = req.query.seen ? req.query.seen.split(',') : [];
     if (!BOARDS[type]) return res.json({ success: false, error: "Board not found" });
 
-    // Grab candidates from our permanent archive
     const candidates = store[type];
     const output = [];
     
-    // Search backward (newest first) but skip seen ones
     for (let i = candidates.length - 1; i >= 0; i--) {
         if (output.length >= 15) break;
         if (seen.includes(candidates[i])) continue;
@@ -97,9 +89,14 @@ app.get('/pinterest/scout/:type', async (req, res) => {
         if (original) output.push(original);
     }
 
-    // If we have nothing fresh, try to sync right now as a last resort
-    if (output.length === 0) {
-        await syncAllBoards();
+    // 🏆 THE GREAT RESET: If we found NOTHING new for the phone, tell it to reset its history!
+    if (output.length === 0 && candidates.length > 0) {
+        return res.json({ 
+            success: true, 
+            pins: [], 
+            action: "RESET_HISTORY", 
+            message: "Board exhausted. Starting over from the beginning!" 
+        });
     }
 
     res.json({ success: true, pins: output });
@@ -111,5 +108,5 @@ app.get('/stats', (req, res) => {
     res.json({ success: true, total_pins: stats });
 });
 
-app.get('/', (req, res) => res.send(`⚓ Command Center Active. Managing ${Object.keys(BOARDS).length} boards.`));
-app.listen(PORT, () => console.log(`⚓ Master Detective on port ${PORT}`));
+app.get('/', (req, res) => res.send(`⚓ Master Detective Ready.`));
+app.listen(PORT, () => console.log(`⚓ Server on port ${PORT}`));
